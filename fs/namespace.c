@@ -31,9 +31,11 @@
 #include <linux/log2.h>
 #include <linux/idr.h>
 #include <linux/init.h>		/* init_rootfs */
-#include <linux/fs_struct.h>
-#include <linux/fsnotify.h>
-#include <asm/uaccess.h>
+#include <linux/acct.h>		/* acct_auto_close_mnt */
+#include <linux/ramfs.h>	/* init_rootfs */
+#include <linux/fs_struct.h>	/* get_fs_root et.al. */
+#include <linux/fsnotify.h>	/* fsnotify_vfsmount_delete */
+#include <linux/uaccess.h>
 #include <asm/unistd.h>
 #include <linux/proc_fs.h>
 #include "pnode.h"
