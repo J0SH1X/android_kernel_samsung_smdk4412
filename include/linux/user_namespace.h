@@ -30,6 +30,10 @@ struct user_namespace {
 	struct key		*persistent_keyring_register;
 	struct rw_semaphore	persistent_keyring_register_sem;
 #endif
+	struct hlist_head	uidhash_table[UIDHASH_SZ];
+	struct user_struct	*creator;
+	struct work_struct	destroyer;
+	unsigned int		proc_inum;
 };
 
 extern struct user_namespace init_user_ns;
