@@ -122,14 +122,7 @@ static void __jump_label_update(struct jump_label_key *key,
 	}
 }
 
-/*
- * Not all archs need this.
- */
-void __weak arch_jump_label_text_poke_early(jump_label_t addr)
-{
-}
-
-static __init int jump_label_init(void)
+void __init jump_label_init(void)
 {
 	struct jump_entry *iter_start = __start___jump_table;
 	struct jump_entry *iter_stop = __stop___jump_table;
@@ -152,10 +145,7 @@ static __init int jump_label_init(void)
 #endif
 	}
 	jump_label_unlock();
-
-	return 0;
 }
-early_initcall(jump_label_init);
 
 #ifdef CONFIG_MODULES
 
