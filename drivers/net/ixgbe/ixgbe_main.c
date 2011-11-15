@@ -7204,6 +7204,195 @@ static struct rtnl_link_stats64 *ixgbe_get_stats64(struct net_device *netdev,
 	return stats;
 }
 
+/* ixgbe_validate_rtr - verify 802.1Qp to Rx packet buffer mapping is valid.
+ * #adapter: pointer to ixgbe_adapter
+ * @tc: number of traffic classes currently enabled
+ *
+ * Configure a valid 802.1Qp to Rx packet buffer mapping ie confirm
+ * 802.1Q priority maps to a packet buffer that exists.
+ */
+static void ixgbe_validate_rtr(struct ixgbe_adapter *adapter, u8 tc)
+{
+	struct ixgbe_hw *hw = &adapter->hw;
+	u32 reg, rsave;
+	int i;
+
+	/* 82598 have a static priority to TC mapping that can not
+	 * be changed so no validation is needed.
+	 */
+	if (hw->mac.type == ixgbe_mac_82598EB)
+		return;
+
+	reg = IXGBE_READ_REG(hw, IXGBE_RTRUP2TC);
+	rsave = reg;
+
+	for (i = 0; i < MAX_TRAFFIC_CLASS; i++) {
+		u8 up2tc = reg >> (i * IXGBE_RTRUP2TC_UP_SHIFT);
+
+		/* If up2tc is out of bounds default to zero */
+		if (up2tc > tc)
+			reg &= ~(0x7 << IXGBE_RTRUP2TC_UP_SHIFT);
+	}
+
+	if (reg != rsave)
+		IXGBE_WRITE_REG(hw, IXGBE_RTRUP2TC, reg);
+
+	return;
+}
+
+
+/* ixgbe_setup_tc - routine to configure net_device for multiple traffic
+ * classes.
+ *
+ * @netdev: net device to configure
+ * @tc: number of traffic classes to enable
+ */
+int ixgbe_setup_tc(struct net_device *dev, u8 tc)
+{
+	struct ixgbe_adapter *adapter = netdev_priv(dev);
+	struct ixgbe_hw *hw = &adapter->hw;
+
+	/* Multiple traffic classes requires multiple queues */
+	if (!(adapter->flags & IXGBE_FLAG_MSIX_ENABLED)) {
+		e_err(drv, "Enable failed, needs MSI-X\n");
+		return -EINVAL;
+	}
+
+	/* Hardware supports up to 8 traffic classes */
+	if (tc > adapter->dcb_cfg.num_tcs.pg_tcs ||
+	    (hw->mac.type == ixgbe_mac_82598EB && tc < MAX_TRAFFIC_CLASS))
+		return -EINVAL;
+
+	/* Hardware has to reinitialize queues and interrupts to
+	 * match packet buffer alignment. Unfortunantly, the
+	 * hardware is not flexible enough to do this dynamically.
+	 */
+	if (netif_running(dev))
+		ixgbe_close(dev);
+	ixgbe_clear_interrupt_scheme(adapter);
+
+	if (tc) {
+		netdev_set_num_tc(dev, tc);
+		adapter->last_lfc_mode = adapter->hw.fc.current_mode;
+
+		adapter->flags |= IXGBE_FLAG_DCB_ENABLED;
+		adapter->flags &= ~IXGBE_FLAG_FDIR_HASH_CAPABLE;
+
+		if (adapter->hw.mac.type == ixgbe_mac_82598EB)
+			adapter->hw.fc.requested_mode = ixgbe_fc_none;
+	} else {
+		netdev_reset_tc(dev);
+
+		adapter->hw.fc.requested_mode = adapter->last_lfc_mode;
+
+		adapter->flags &= ~IXGBE_FLAG_DCB_ENABLED;
+		adapter->flags |= IXGBE_FLAG_FDIR_HASH_CAPABLE;
+
+		adapter->temp_dcb_cfg.pfc_mode_enable = false;
+		adapter->dcb_cfg.pfc_mode_enable = false;
+	}
+
+	ixgbe_init_interrupt_scheme(adapter);
+	ixgbe_validate_rtr(adapter, tc);
+	if (netif_running(dev))
+		ixgbe_open(dev);
+
+	return 0;
+}
+
+void ixgbe_do_reset(struct net_device *netdev)
+{
+	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+
+	if (netif_running(netdev))
+		ixgbe_reinit_locked(adapter);
+	else
+		ixgbe_reset(adapter);
+}
+
+static netdev_features_t ixgbe_fix_features(struct net_device *netdev,
+	netdev_features_t data)
+{
+	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+
+#ifdef CONFIG_DCB
+	if (adapter->flags & IXGBE_FLAG_DCB_ENABLED)
+		data &= ~NETIF_F_HW_VLAN_RX;
+#endif
+
+	/* return error if RXHASH is being enabled when RSS is not supported */
+	if (!(adapter->flags & IXGBE_FLAG_RSS_ENABLED))
+		data &= ~NETIF_F_RXHASH;
+
+	/* If Rx checksum is disabled, then RSC/LRO should also be disabled */
+	if (!(data & NETIF_F_RXCSUM))
+		data &= ~NETIF_F_LRO;
+
+	/* Turn off LRO if not RSC capable or invalid ITR settings */
+	if (!(adapter->flags2 & IXGBE_FLAG2_RSC_CAPABLE)) {
+		data &= ~NETIF_F_LRO;
+	} else if (!(adapter->flags2 & IXGBE_FLAG2_RSC_ENABLED) &&
+		   (adapter->rx_itr_setting != 1 &&
+		    adapter->rx_itr_setting > IXGBE_MAX_RSC_INT_RATE)) {
+		data &= ~NETIF_F_LRO;
+		e_info(probe, "rx-usecs set too low, not enabling RSC\n");
+	}
+
+	return data;
+}
+
+static int ixgbe_set_features(struct net_device *netdev,
+	netdev_features_t data)
+{
+	struct ixgbe_adapter *adapter = netdev_priv(netdev);
+	bool need_reset = false;
+
+	/* If Rx checksum is disabled, then RSC/LRO should also be disabled */
+	if (!(data & NETIF_F_RXCSUM))
+		adapter->flags &= ~IXGBE_FLAG_RX_CSUM_ENABLED;
+	else
+		adapter->flags |= IXGBE_FLAG_RX_CSUM_ENABLED;
+
+	/* Make sure RSC matches LRO, reset if change */
+	if (!!(data & NETIF_F_LRO) !=
+	     !!(adapter->flags2 & IXGBE_FLAG2_RSC_ENABLED)) {
+		adapter->flags2 ^= IXGBE_FLAG2_RSC_ENABLED;
+		switch (adapter->hw.mac.type) {
+		case ixgbe_mac_X540:
+		case ixgbe_mac_82599EB:
+			need_reset = true;
+			break;
+		default:
+			break;
+		}
+	}
+
+	/*
+	 * Check if Flow Director n-tuple support was enabled or disabled.  If
+	 * the state changed, we need to reset.
+	 */
+	if (!(adapter->flags & IXGBE_FLAG_FDIR_PERFECT_CAPABLE)) {
+		/* turn off ATR, enable perfect filters and reset */
+		if (data & NETIF_F_NTUPLE) {
+			adapter->flags &= ~IXGBE_FLAG_FDIR_HASH_CAPABLE;
+			adapter->flags |= IXGBE_FLAG_FDIR_PERFECT_CAPABLE;
+			need_reset = true;
+		}
+	} else if (!(data & NETIF_F_NTUPLE)) {
+		/* turn off Flow Director, set ATR and reset */
+		adapter->flags &= ~IXGBE_FLAG_FDIR_PERFECT_CAPABLE;
+		if ((adapter->flags &  IXGBE_FLAG_RSS_ENABLED) &&
+		    !(adapter->flags &  IXGBE_FLAG_DCB_ENABLED))
+			adapter->flags |= IXGBE_FLAG_FDIR_HASH_CAPABLE;
+		need_reset = true;
+	}
+
+	if (need_reset)
+		ixgbe_do_reset(netdev);
+
+	return 0;
+
+}
 
 static const struct net_device_ops ixgbe_netdev_ops = {
 	.ndo_open		= ixgbe_open,

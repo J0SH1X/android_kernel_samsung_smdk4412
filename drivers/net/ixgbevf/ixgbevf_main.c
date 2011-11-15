@@ -3248,6 +3248,57 @@ static void ixgbevf_shutdown(struct pci_dev *pdev)
 	pci_disable_device(pdev);
 }
 
+static struct rtnl_link_stats64 *ixgbevf_get_stats(struct net_device *netdev,
+						struct rtnl_link_stats64 *stats)
+{
+	struct ixgbevf_adapter *adapter = netdev_priv(netdev);
+	unsigned int start;
+	u64 bytes, packets;
+	const struct ixgbevf_ring *ring;
+	int i;
+
+	ixgbevf_update_stats(adapter);
+
+	stats->multicast = adapter->stats.vfmprc - adapter->stats.base_vfmprc;
+
+	for (i = 0; i < adapter->num_rx_queues; i++) {
+		ring = &adapter->rx_ring[i];
+		do {
+			start = u64_stats_fetch_begin_bh(&ring->syncp);
+			bytes = ring->total_bytes;
+			packets = ring->total_packets;
+		} while (u64_stats_fetch_retry_bh(&ring->syncp, start));
+		stats->rx_bytes += bytes;
+		stats->rx_packets += packets;
+	}
+
+	for (i = 0; i < adapter->num_tx_queues; i++) {
+		ring = &adapter->tx_ring[i];
+		do {
+			start = u64_stats_fetch_begin_bh(&ring->syncp);
+			bytes = ring->total_bytes;
+			packets = ring->total_packets;
+		} while (u64_stats_fetch_retry_bh(&ring->syncp, start));
+		stats->tx_bytes += bytes;
+		stats->tx_packets += packets;
+	}
+
+	return stats;
+}
+
+static int ixgbevf_set_features(struct net_device *netdev,
+	netdev_features_t features)
+{
+	struct ixgbevf_adapter *adapter = netdev_priv(netdev);
+
+	if (features & NETIF_F_RXCSUM)
+		adapter->flags |= IXGBE_FLAG_RX_CSUM_ENABLED;
+	else
+		adapter->flags &= ~IXGBE_FLAG_RX_CSUM_ENABLED;
+
+	return 0;
+}
+
 static const struct net_device_ops ixgbe_netdev_ops = {
 	.ndo_open		= &ixgbevf_open,
 	.ndo_stop		= &ixgbevf_close,

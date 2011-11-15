@@ -2334,7 +2334,7 @@ static int ql_napi_poll_msix(struct napi_struct *napi, int budget)
 	return work_done;
 }
 
-static void qlge_vlan_rx_register(struct net_device *ndev, struct vlan_group *grp)
+static void qlge_vlan_mode(struct net_device *ndev, netdev_features_t features)
 {
 	struct ql_adapter *qdev = netdev_priv(ndev);
 
@@ -2348,6 +2348,43 @@ static void qlge_vlan_rx_register(struct net_device *ndev, struct vlan_group *gr
 		netif_printk(qdev, ifup, KERN_DEBUG, qdev->ndev,
 			     "Turning off VLAN in NIC_RCV_CFG.\n");
 		ql_write32(qdev, NIC_RCV_CFG, NIC_RCV_CFG_VLAN_MASK);
+	}
+}
+
+static netdev_features_t qlge_fix_features(struct net_device *ndev,
+	netdev_features_t features)
+{
+	/*
+	 * Since there is no support for separate rx/tx vlan accel
+	 * enable/disable make sure tx flag is always in same state as rx.
+	 */
+	if (features & NETIF_F_HW_VLAN_RX)
+		features |= NETIF_F_HW_VLAN_TX;
+	else
+		features &= ~NETIF_F_HW_VLAN_TX;
+
+	return features;
+}
+
+static int qlge_set_features(struct net_device *ndev,
+	netdev_features_t features)
+{
+	netdev_features_t changed = ndev->features ^ features;
+
+	if (changed & NETIF_F_HW_VLAN_RX)
+		qlge_vlan_mode(ndev, features);
+
+	return 0;
+}
+
+static void __qlge_vlan_rx_add_vid(struct ql_adapter *qdev, u16 vid)
+{
+	u32 enable_bit = MAC_ADDR_E;
+
+	if (ql_set_mac_addr_reg
+	    (qdev, (u8 *) &enable_bit, MAC_ADDR_TYPE_VLAN, vid)) {
+		netif_err(qdev, ifup, qdev->ndev,
+			  "Failed to init vlan address.\n");
 	}
 }
 

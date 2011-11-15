@@ -166,7 +166,9 @@ static void e1000_smartspeed(struct e1000_adapter *adapter);
 static int e1000_82547_fifo_workaround(struct e1000_adapter *adapter,
                                        struct sk_buff *skb);
 
-static void e1000_vlan_rx_register(struct net_device *netdev, struct vlan_group *grp);
+static bool e1000_vlan_used(struct e1000_adapter *adapter);
+static void e1000_vlan_mode(struct net_device *netdev,
+			    netdev_features_t features);
 static void e1000_vlan_rx_add_vid(struct net_device *netdev, u16 vid);
 static void e1000_vlan_rx_kill_vid(struct net_device *netdev, u16 vid);
 static void e1000_restore_vlan(struct e1000_adapter *adapter);
@@ -795,6 +797,43 @@ static int e1000_is_need_ioport(struct pci_dev *pdev)
 	default:
 		return false;
 	}
+}
+
+static netdev_features_t e1000_fix_features(struct net_device *netdev,
+	netdev_features_t features)
+{
+	/*
+	 * Since there is no support for separate rx/tx vlan accel
+	 * enable/disable make sure tx flag is always in same state as rx.
+	 */
+	if (features & NETIF_F_HW_VLAN_RX)
+		features |= NETIF_F_HW_VLAN_TX;
+	else
+		features &= ~NETIF_F_HW_VLAN_TX;
+
+	return features;
+}
+
+static int e1000_set_features(struct net_device *netdev,
+	netdev_features_t features)
+{
+	struct e1000_adapter *adapter = netdev_priv(netdev);
+	netdev_features_t changed = features ^ netdev->features;
+
+	if (changed & NETIF_F_HW_VLAN_RX)
+		e1000_vlan_mode(netdev, features);
+
+	if (!(changed & NETIF_F_RXCSUM))
+		return 0;
+
+	adapter->rx_csum = !!(features & NETIF_F_RXCSUM);
+
+	if (netif_running(netdev))
+		e1000_reinit_locked(adapter);
+	else
+		e1000_reset(adapter);
+
+	return 0;
 }
 
 static const struct net_device_ops e1000_netdev_ops = {
@@ -4541,6 +4580,30 @@ static void e1000_vlan_rx_register(struct net_device *netdev,
 			adapter->mng_vlan_id = E1000_MNG_VLAN_NONE;
 		}
 	}
+
+	if (!test_bit(__E1000_DOWN, &adapter->flags))
+		e1000_irq_enable(adapter);
+}
+
+static void e1000_vlan_mode(struct net_device *netdev,
+	netdev_features_t features)
+{
+	struct e1000_adapter *adapter = netdev_priv(netdev);
+	struct e1000_hw *hw = &adapter->hw;
+	u32 ctrl;
+
+	if (!test_bit(__E1000_DOWN, &adapter->flags))
+		e1000_irq_disable(adapter);
+
+	ctrl = er32(CTRL);
+	if (features & NETIF_F_HW_VLAN_RX) {
+		/* enable VLAN tag insert/strip */
+		ctrl |= E1000_CTRL_VME;
+	} else {
+		/* disable VLAN tag insert/strip */
+		ctrl &= ~E1000_CTRL_VME;
+	}
+	ew32(CTRL, ctrl);
 
 	if (!test_bit(__E1000_DOWN, &adapter->flags))
 		e1000_irq_enable(adapter);

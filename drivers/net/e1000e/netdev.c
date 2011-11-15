@@ -5790,6 +5790,27 @@ static void e1000_eeprom_checks(struct e1000_adapter *adapter)
 	}
 }
 
+static int e1000_set_features(struct net_device *netdev,
+	netdev_features_t features)
+{
+	struct e1000_adapter *adapter = netdev_priv(netdev);
+	netdev_features_t changed = features ^ netdev->features;
+
+	if (changed & (NETIF_F_TSO | NETIF_F_TSO6))
+		adapter->flags |= FLAG_TSO_FORCE;
+
+	if (!(changed & (NETIF_F_HW_VLAN_RX | NETIF_F_HW_VLAN_TX |
+			 NETIF_F_RXCSUM)))
+		return 0;
+
+	if (netif_running(netdev))
+		e1000e_reinit_locked(adapter);
+	else
+		e1000e_reset(adapter);
+
+	return 0;
+}
+
 static const struct net_device_ops e1000e_netdev_ops = {
 	.ndo_open		= e1000_open,
 	.ndo_stop		= e1000_close,

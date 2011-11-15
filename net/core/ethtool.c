@@ -414,7 +414,7 @@ static void __ethtool_get_strings(struct net_device *dev,
 		ops->get_strings(dev, stringset, data);
 }
 
-static u32 ethtool_get_feature_mask(u32 eth_cmd)
+static netdev_features_t ethtool_get_feature_mask(u32 eth_cmd)
 {
 	/* feature masks of legacy discrete ethtool ops */
 
@@ -476,7 +476,7 @@ static u32 __ethtool_get_rx_csum_oldbug(struct net_device *dev)
 static int ethtool_get_one_feature(struct net_device *dev,
 	char __user *useraddr, u32 ethcmd)
 {
-	u32 mask = ethtool_get_feature_mask(ethcmd);
+	netdev_features_t mask = ethtool_get_feature_mask(ethcmd);
 	struct ethtool_value edata = {
 		.cmd = ethcmd,
 		.data = !!(dev->features & mask),
@@ -511,7 +511,7 @@ static int ethtool_set_one_feature(struct net_device *dev,
 	void __user *useraddr, u32 ethcmd)
 {
 	struct ethtool_value edata;
-	u32 mask;
+	netdev_features_t mask;
 
 	if (copy_from_user(&edata, useraddr, sizeof(edata)))
 		return -EFAULT;
@@ -555,7 +555,20 @@ static int ethtool_set_one_feature(struct net_device *dev,
 
 int __ethtool_set_flags(struct net_device *dev, u32 data)
 {
-	u32 changed;
+	u32 flags = 0;
+
+	if (dev->features & NETIF_F_LRO)	flags |= ETH_FLAG_LRO;
+	if (dev->features & NETIF_F_HW_VLAN_RX)	flags |= ETH_FLAG_RXVLAN;
+	if (dev->features & NETIF_F_HW_VLAN_TX)	flags |= ETH_FLAG_TXVLAN;
+	if (dev->features & NETIF_F_NTUPLE)	flags |= ETH_FLAG_NTUPLE;
+	if (dev->features & NETIF_F_RXHASH)	flags |= ETH_FLAG_RXHASH;
+
+	return flags;
+}
+
+static int __ethtool_set_flags(struct net_device *dev, u32 data)
+{
+	netdev_features_t features = 0, changed;
 
 	if (data & ~flags_dup_features)
 		return -EINVAL;

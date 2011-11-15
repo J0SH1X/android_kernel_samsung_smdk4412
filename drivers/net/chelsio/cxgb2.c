@@ -849,10 +849,24 @@ static int t1_set_mac_addr(struct net_device *dev, void *p)
 	return 0;
 }
 
-#if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
-static void t1_vlan_rx_register(struct net_device *dev,
-				   struct vlan_group *grp)
+static netdev_features_t t1_fix_features(struct net_device *dev,
+	netdev_features_t features)
 {
+	/*
+	 * Since there is no support for separate rx/tx vlan accel
+	 * enable/disable make sure tx flag is always in same state as rx.
+	 */
+	if (features & NETIF_F_HW_VLAN_RX)
+		features |= NETIF_F_HW_VLAN_TX;
+	else
+		features &= ~NETIF_F_HW_VLAN_TX;
+
+	return features;
+}
+
+static int t1_set_features(struct net_device *dev, netdev_features_t features)
+{
+	netdev_features_t changed = dev->features ^ features;
 	struct adapter *adapter = dev->ml_priv;
 
 	spin_lock_irq(&adapter->async_lock);

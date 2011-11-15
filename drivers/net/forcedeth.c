@@ -4475,7 +4475,63 @@ static int nv_set_pauseparam(struct net_device *dev, struct ethtool_pauseparam* 
 	return 0;
 }
 
-static u32 nv_fix_features(struct net_device *dev, u32 features)
+static int nv_set_loopback(struct net_device *dev, netdev_features_t features)
+{
+	struct fe_priv *np = netdev_priv(dev);
+	unsigned long flags;
+	u32 miicontrol;
+	int err, retval = 0;
+
+	spin_lock_irqsave(&np->lock, flags);
+	miicontrol = mii_rw(dev, np->phyaddr, MII_BMCR, MII_READ);
+	if (features & NETIF_F_LOOPBACK) {
+		if (miicontrol & BMCR_LOOPBACK) {
+			spin_unlock_irqrestore(&np->lock, flags);
+			netdev_info(dev, "Loopback already enabled\n");
+			return 0;
+		}
+		nv_disable_irq(dev);
+		/* Turn on loopback mode */
+		miicontrol |= BMCR_LOOPBACK | BMCR_FULLDPLX | BMCR_SPEED1000;
+		err = mii_rw(dev, np->phyaddr, MII_BMCR, miicontrol);
+		if (err) {
+			retval = PHY_ERROR;
+			spin_unlock_irqrestore(&np->lock, flags);
+			phy_init(dev);
+		} else {
+			if (netif_running(dev)) {
+				/* Force 1000 Mbps full-duplex */
+				nv_force_linkspeed(dev, NVREG_LINKSPEED_1000,
+									 1);
+				/* Force link up */
+				netif_carrier_on(dev);
+			}
+			spin_unlock_irqrestore(&np->lock, flags);
+			netdev_info(dev,
+				"Internal PHY loopback mode enabled.\n");
+		}
+	} else {
+		if (!(miicontrol & BMCR_LOOPBACK)) {
+			spin_unlock_irqrestore(&np->lock, flags);
+			netdev_info(dev, "Loopback already disabled\n");
+			return 0;
+		}
+		nv_disable_irq(dev);
+		/* Turn off loopback */
+		spin_unlock_irqrestore(&np->lock, flags);
+		netdev_info(dev, "Internal PHY loopback mode disabled.\n");
+		phy_init(dev);
+	}
+	msleep(500);
+	spin_lock_irqsave(&np->lock, flags);
+	nv_enable_irq(dev);
+	spin_unlock_irqrestore(&np->lock, flags);
+
+	return retval;
+}
+
+static netdev_features_t nv_fix_features(struct net_device *dev,
+	netdev_features_t features)
 {
 	/* vlan is dependent on rx checksum offload */
 	if (features & (NETIF_F_HW_VLAN_TX|NETIF_F_HW_VLAN_RX))
@@ -4484,11 +4540,39 @@ static u32 nv_fix_features(struct net_device *dev, u32 features)
 	return features;
 }
 
-static int nv_set_features(struct net_device *dev, u32 features)
+static void nv_vlan_mode(struct net_device *dev, netdev_features_t features)
+{
+	struct fe_priv *np = get_nvpriv(dev);
+
+	spin_lock_irq(&np->lock);
+
+	if (features & NETIF_F_HW_VLAN_RX)
+		np->txrxctl_bits |= NVREG_TXRXCTL_VLANSTRIP;
+	else
+		np->txrxctl_bits &= ~NVREG_TXRXCTL_VLANSTRIP;
+
+	if (features & NETIF_F_HW_VLAN_TX)
+		np->txrxctl_bits |= NVREG_TXRXCTL_VLANINS;
+	else
+		np->txrxctl_bits &= ~NVREG_TXRXCTL_VLANINS;
+
+	writel(np->txrxctl_bits, get_hwbase(dev) + NvRegTxRxControl);
+
+	spin_unlock_irq(&np->lock);
+}
+
+static int nv_set_features(struct net_device *dev, netdev_features_t features)
 {
 	struct fe_priv *np = netdev_priv(dev);
 	u8 __iomem *base = get_hwbase(dev);
-	u32 changed = dev->features ^ features;
+	netdev_features_t changed = dev->features ^ features;
+	int retval;
+
+	if ((changed & NETIF_F_LOOPBACK) && netif_running(dev)) {
+		retval = nv_set_loopback(dev, features);
+		if (retval != 0)
+			return retval;
+	}
 
 	if (changed & NETIF_F_RXCSUM) {
 		spin_lock_irq(&np->lock);

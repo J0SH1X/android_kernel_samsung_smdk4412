@@ -2543,7 +2543,19 @@ static void igbvf_print_device_info(struct igbvf_adapter *adapter)
 
 	dev_info(&pdev->dev, "Intel(R) 82576 Virtual Function\n");
 	dev_info(&pdev->dev, "Address: %pM\n", netdev->dev_addr);
-	dev_info(&pdev->dev, "MAC: %d\n", hw->mac.type);
+}
+
+static int igbvf_set_features(struct net_device *netdev,
+	netdev_features_t features)
+{
+	struct igbvf_adapter *adapter = netdev_priv(netdev);
+
+	if (features & NETIF_F_RXCSUM)
+		adapter->flags &= ~IGBVF_FLAG_RX_CSUM_DISABLED;
+	else
+		adapter->flags |= IGBVF_FLAG_RX_CSUM_DISABLED;
+
+	return 0;
 }
 
 static const struct net_device_ops igbvf_netdev_ops = {

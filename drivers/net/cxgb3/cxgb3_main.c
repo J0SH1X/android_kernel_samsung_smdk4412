@@ -2532,7 +2532,7 @@ static void t3_synchronize_rx(struct adapter *adap, const struct port_info *p)
 	}
 }
 
-static void vlan_rx_register(struct net_device *dev, struct vlan_group *grp)
+static void cxgb_vlan_mode(struct net_device *dev, netdev_features_t features)
 {
 	struct port_info *pi = netdev_priv(dev);
 	struct adapter *adapter = pi->adapter;
@@ -2549,6 +2549,31 @@ static void vlan_rx_register(struct net_device *dev, struct vlan_group *grp)
 		t3_set_vlan_accel(adapter, 1, have_vlans);
 	}
 	t3_synchronize_rx(adapter, pi);
+}
+
+static netdev_features_t cxgb_fix_features(struct net_device *dev,
+	netdev_features_t features)
+{
+	/*
+	 * Since there is no support for separate rx/tx vlan accel
+	 * enable/disable make sure tx flag is always in same state as rx.
+	 */
+	if (features & NETIF_F_HW_VLAN_RX)
+		features |= NETIF_F_HW_VLAN_TX;
+	else
+		features &= ~NETIF_F_HW_VLAN_TX;
+
+	return features;
+}
+
+static int cxgb_set_features(struct net_device *dev, netdev_features_t features)
+{
+	netdev_features_t changed = dev->features ^ features;
+
+	if (changed & NETIF_F_HW_VLAN_RX)
+		cxgb_vlan_mode(dev, features);
+
+	return 0;
 }
 
 #ifdef CONFIG_NET_POLL_CONTROLLER

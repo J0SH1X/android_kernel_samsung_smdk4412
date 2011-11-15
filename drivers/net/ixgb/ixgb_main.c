@@ -325,6 +325,41 @@ ixgb_reset(struct ixgb_adapter *adapter)
 	}
 }
 
+static netdev_features_t
+ixgb_fix_features(struct net_device *netdev, netdev_features_t features)
+{
+	/*
+	 * Tx VLAN insertion does not work per HW design when Rx stripping is
+	 * disabled.
+	 */
+	if (!(features & NETIF_F_HW_VLAN_RX))
+		features &= ~NETIF_F_HW_VLAN_TX;
+
+	return features;
+}
+
+static int
+ixgb_set_features(struct net_device *netdev, netdev_features_t features)
+{
+	struct ixgb_adapter *adapter = netdev_priv(netdev);
+	netdev_features_t changed = features ^ netdev->features;
+
+	if (!(changed & (NETIF_F_RXCSUM|NETIF_F_HW_VLAN_RX)))
+		return 0;
+
+	adapter->rx_csum = !!(features & NETIF_F_RXCSUM);
+
+	if (netif_running(netdev)) {
+		ixgb_down(adapter, true);
+		ixgb_up(adapter);
+		ixgb_set_speed_duplex(netdev);
+	} else
+		ixgb_reset(adapter);
+
+	return 0;
+}
+
+
 static const struct net_device_ops ixgb_netdev_ops = {
 	.ndo_open 		= ixgb_open,
 	.ndo_stop		= ixgb_close,

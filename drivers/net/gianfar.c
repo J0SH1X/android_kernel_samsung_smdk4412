@@ -2308,8 +2308,7 @@ void gfar_check_rx_parser_mode(struct gfar_private *priv)
 
 
 /* Enables and disables VLAN insertion/extraction */
-static void gfar_vlan_rx_register(struct net_device *dev,
-		struct vlan_group *grp)
+void gfar_vlan_mode(struct net_device *dev, netdev_features_t features)
 {
 	struct gfar_private *priv = netdev_priv(dev);
 	struct gfar __iomem *regs = NULL;

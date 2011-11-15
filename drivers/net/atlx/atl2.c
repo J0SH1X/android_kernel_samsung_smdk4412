@@ -362,9 +362,19 @@ static inline void atl2_irq_disable(struct atl2_adapter *adapter)
     synchronize_irq(adapter->pdev->irq);
 }
 
-#ifdef NETIF_F_HW_VLAN_TX
-static void atl2_vlan_rx_register(struct net_device *netdev,
-	struct vlan_group *grp)
+static void __atl2_vlan_mode(netdev_features_t features, u32 *ctrl)
+{
+	if (features & NETIF_F_HW_VLAN_RX) {
+		/* enable VLAN tag insert/strip */
+		*ctrl |= MAC_CTRL_RMV_VLAN;
+	} else {
+		/* disable VLAN tag insert/strip */
+		*ctrl &= ~MAC_CTRL_RMV_VLAN;
+	}
+}
+
+static void atl2_vlan_mode(struct net_device *netdev,
+	netdev_features_t features)
 {
 	struct atl2_adapter *adapter = netdev_priv(netdev);
 	u32 ctrl;
@@ -389,7 +399,33 @@ static void atl2_vlan_rx_register(struct net_device *netdev,
 
 static void atl2_restore_vlan(struct atl2_adapter *adapter)
 {
-	atl2_vlan_rx_register(adapter->netdev, adapter->vlgrp);
+	atl2_vlan_mode(adapter->netdev, adapter->netdev->features);
+}
+
+static netdev_features_t atl2_fix_features(struct net_device *netdev,
+	netdev_features_t features)
+{
+	/*
+	 * Since there is no support for separate rx/tx vlan accel
+	 * enable/disable make sure tx flag is always in same state as rx.
+	 */
+	if (features & NETIF_F_HW_VLAN_RX)
+		features |= NETIF_F_HW_VLAN_TX;
+	else
+		features &= ~NETIF_F_HW_VLAN_TX;
+
+	return features;
+}
+
+static int atl2_set_features(struct net_device *netdev,
+	netdev_features_t features)
+{
+	netdev_features_t changed = netdev->features ^ features;
+
+	if (changed & NETIF_F_HW_VLAN_RX)
+		atl2_vlan_mode(netdev, features);
+
+	return 0;
 }
 #endif
 

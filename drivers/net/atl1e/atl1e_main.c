@@ -313,8 +313,19 @@ static void atl1e_set_multi(struct net_device *netdev)
 	}
 }
 
-static void atl1e_vlan_rx_register(struct net_device *netdev,
-				   struct vlan_group *grp)
+static void __atl1e_vlan_mode(netdev_features_t features, u32 *mac_ctrl_data)
+{
+	if (features & NETIF_F_HW_VLAN_RX) {
+		/* enable VLAN tag insert/strip */
+		*mac_ctrl_data |= MAC_CTRL_RMV_VLAN;
+	} else {
+		/* disable VLAN tag insert/strip */
+		*mac_ctrl_data &= ~MAC_CTRL_RMV_VLAN;
+	}
+}
+
+static void atl1e_vlan_mode(struct net_device *netdev,
+	netdev_features_t features)
 {
 	struct atl1e_adapter *adapter = netdev_priv(netdev);
 	u32 mac_ctrl_data = 0;
@@ -365,6 +376,32 @@ static int atl1e_set_mac_addr(struct net_device *netdev, void *p)
 	memcpy(adapter->hw.mac_addr, addr->sa_data, netdev->addr_len);
 
 	atl1e_hw_set_mac_addr(&adapter->hw);
+
+	return 0;
+}
+
+static netdev_features_t atl1e_fix_features(struct net_device *netdev,
+	netdev_features_t features)
+{
+	/*
+	 * Since there is no support for separate rx/tx vlan accel
+	 * enable/disable make sure tx flag is always in same state as rx.
+	 */
+	if (features & NETIF_F_HW_VLAN_RX)
+		features |= NETIF_F_HW_VLAN_TX;
+	else
+		features &= ~NETIF_F_HW_VLAN_TX;
+
+	return features;
+}
+
+static int atl1e_set_features(struct net_device *netdev,
+	netdev_features_t features)
+{
+	netdev_features_t changed = netdev->features ^ features;
+
+	if (changed & NETIF_F_HW_VLAN_RX)
+		atl1e_vlan_mode(netdev, features);
 
 	return 0;
 }
