@@ -1095,11 +1095,11 @@ perf_sw_event(u32 event_id, u64 nr, struct pt_regs *regs, u64 addr)
 	}
 }
 
-extern struct jump_label_key perf_sched_events;
+extern struct jump_label_key_deferred perf_sched_events;
 
 static inline void perf_event_task_sched_in(struct task_struct *task)
 {
-	if (static_branch(&perf_sched_events))
+	if (static_branch(&perf_sched_events.key))
 		__perf_event_task_sched_in(task);
 }
 
@@ -1107,7 +1107,8 @@ static inline void perf_event_task_sched_out(struct task_struct *task, struct ta
 {
 	perf_sw_event(PERF_COUNT_SW_CONTEXT_SWITCHES, 1, NULL, 0);
 
-	__perf_event_task_sched_out(task, next);
+	if (static_branch(&perf_sched_events.key))
+		__perf_event_task_sched_out(task, next);
 }
 
 extern void perf_event_mmap(struct vm_area_struct *vma);
