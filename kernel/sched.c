@@ -729,6 +729,36 @@ static int sched_feat_show(struct seq_file *m, void *v)
 	return 0;
 }
 
+#ifdef HAVE_JUMP_LABEL
+
+#define jump_label_key__true  STATIC_KEY_INIT_TRUE
+#define jump_label_key__false STATIC_KEY_INIT_FALSE
+
+#define SCHED_FEAT(name, enabled)	\
+	jump_label_key__##enabled ,
+
+struct static_key sched_feat_keys[__SCHED_FEAT_NR] = {
+#include "features.h"
+};
+
+#undef SCHED_FEAT
+
+static void sched_feat_disable(int i)
+{
+	if (static_key_enabled(&sched_feat_keys[i]))
+		static_key_slow_dec(&sched_feat_keys[i]);
+}
+
+static void sched_feat_enable(int i)
+{
+	if (!static_key_enabled(&sched_feat_keys[i]))
+		static_key_slow_inc(&sched_feat_keys[i]);
+}
+#else
+static void sched_feat_disable(int i) { };
+static void sched_feat_enable(int i) { };
+#endif /* HAVE_JUMP_LABEL */
+
 static ssize_t
 sched_feat_write(struct file *filp, const char __user *ubuf,
 		size_t cnt, loff_t *ppos)
@@ -1979,6 +2009,26 @@ static void update_rq_clock_task(struct rq *rq, s64 delta)
 
 	rq->prev_irq_time += irq_delta;
 	delta -= irq_delta;
+#endif
+#ifdef CONFIG_PARAVIRT_TIME_ACCOUNTING
+	if (static_key_false((&paravirt_steal_rq_enabled))) {
+		u64 st;
+
+		steal = paravirt_steal_clock(cpu_of(rq));
+		steal -= rq->prev_steal_time_rq;
+
+		if (unlikely(steal > delta))
+			steal = delta;
+
+		st = steal_ticks(steal);
+		steal = st * TICK_NSEC;
+
+		rq->prev_steal_time_rq += steal;
+
+		delta -= steal;
+	}
+#endif
+
 	rq->clock_task += delta;
 
 	if (irq_delta && sched_feat(NONIRQ_POWER))
@@ -3860,6 +3910,25 @@ void account_idle_time(cputime_t cputime)
 		cpustat->iowait = cputime64_add(cpustat->iowait, cputime64);
 	else
 		cpustat->idle = cputime64_add(cpustat->idle, cputime64);
+}
+
+static __always_inline bool steal_account_process_tick(void)
+{
+#ifdef CONFIG_PARAVIRT
+	if (static_key_false(&paravirt_steal_enabled)) {
+		u64 steal, st = 0;
+
+		steal = paravirt_steal_clock(smp_processor_id());
+		steal -= this_rq()->prev_steal_time;
+
+		st = steal_ticks(steal);
+		this_rq()->prev_steal_time += st * TICK_NSEC;
+
+		account_steal_time(st);
+		return st;
+	}
+#endif
+	return false;
 }
 
 #ifndef CONFIG_VIRT_CPU_ACCOUNTING

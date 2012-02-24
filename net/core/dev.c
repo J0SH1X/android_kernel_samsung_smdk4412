@@ -133,6 +133,9 @@
 #include <linux/pci.h>
 #include <linux/inetdevice.h>
 #include <linux/cpu_rmap.h>
+#include <linux/net_tstamp.h>
+#include <linux/static_key.h>
+#include <net/flow_keys.h>
 
 #include "net-sysfs.h"
 
@@ -1470,30 +1473,59 @@ int call_netdevice_notifiers(unsigned long val, struct net_device *dev)
 }
 EXPORT_SYMBOL(call_netdevice_notifiers);
 
-/* When > 0 there are consumers of rx skb time stamps */
-static atomic_t netstamp_needed = ATOMIC_INIT(0);
+static struct static_key netstamp_needed __read_mostly;
+#ifdef HAVE_JUMP_LABEL
+/* We are not allowed to call static_key_slow_dec() from irq context
+ * If net_disable_timestamp() is called from irq context, defer the
+ * static_key_slow_dec() calls.
+ */
+static atomic_t netstamp_needed_deferred;
+#endif
 
 void net_enable_timestamp(void)
 {
-	atomic_inc(&netstamp_needed);
+#ifdef HAVE_JUMP_LABEL
+	int deferred = atomic_xchg(&netstamp_needed_deferred, 0);
+
+	if (deferred) {
+		while (--deferred)
+			static_key_slow_dec(&netstamp_needed);
+		return;
+	}
+#endif
+	WARN_ON(in_interrupt());
+	static_key_slow_inc(&netstamp_needed);
 }
 EXPORT_SYMBOL(net_enable_timestamp);
 
 void net_disable_timestamp(void)
 {
-	atomic_dec(&netstamp_needed);
+#ifdef HAVE_JUMP_LABEL
+	if (in_interrupt()) {
+		atomic_inc(&netstamp_needed_deferred);
+		return;
+	}
+#endif
+	static_key_slow_dec(&netstamp_needed);
 }
 EXPORT_SYMBOL(net_disable_timestamp);
 
 static inline void net_timestamp_set(struct sk_buff *skb)
 {
-	if (atomic_read(&netstamp_needed))
+	skb->tstamp.tv64 = 0;
+	if (static_key_false(&netstamp_needed))
 		__net_timestamp(skb);
 	else
 		skb->tstamp.tv64 = 0;
 }
 
-static inline void net_timestamp_check(struct sk_buff *skb)
+#define net_timestamp_check(COND, SKB)			\
+	if (static_key_false(&netstamp_needed)) {		\
+		if ((COND) && !(SKB)->tstamp.tv64)	\
+			__net_timestamp(SKB);		\
+	}						\
+
+static int net_hwtstamp_validate(struct ifreq *ifr)
 {
 	if (!skb->tstamp.tv64 && atomic_read(&netstamp_needed))
 		__net_timestamp(skb);
@@ -2628,6 +2660,8 @@ EXPORT_SYMBOL(__skb_get_rxhash);
 struct rps_sock_flow_table __rcu *rps_sock_flow_table __read_mostly;
 EXPORT_SYMBOL(rps_sock_flow_table);
 
+struct static_key rps_needed __read_mostly;
+
 static struct rps_dev_flow *
 set_rps_cpu(struct net_device *dev, struct sk_buff *skb,
 	    struct rps_dev_flow *rflow, u16 next_cpu)
@@ -2917,7 +2951,7 @@ int netif_rx(struct sk_buff *skb)
 
 	trace_netif_rx(skb);
 #ifdef CONFIG_RPS
-	{
+	if (static_key_false(&rps_needed)) {
 		struct rps_dev_flow voidflow, *rflow = &voidflow;
 		int cpu;
 
@@ -3303,7 +3337,7 @@ int netif_receive_skb(struct sk_buff *skb)
 		return NET_RX_SUCCESS;
 
 #ifdef CONFIG_RPS
-	{
+	if (static_key_false(&rps_needed)) {
 		struct rps_dev_flow voidflow, *rflow = &voidflow;
 		int cpu, ret;
 
