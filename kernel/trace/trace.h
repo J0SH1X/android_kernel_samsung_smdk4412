@@ -812,13 +812,11 @@ int set_tracer_flag(unsigned int mask, int enabled);
 #define trace_recursion_set(bit)	do { (current)->trace_recursion |= (bit); } while (0)
 #define trace_recursion_clear(bit)	do { (current)->trace_recursion &= ~(bit); } while (0)
 #define trace_recursion_test(bit)	((current)->trace_recursion & (bit))
-#ifdef CONFIG_PERF_EVENTS
-#ifdef CONFIG_FUNCTION_TRACER
+#if defined(CONFIG_PERF_EVENTS) && defined(CONFIG_FUNCTION_TRACER)
 int perf_ftrace_event_register(struct ftrace_event_call *call,
 			       enum trace_reg type, void *data);
 #else
 #define perf_ftrace_event_register NULL
-#endif /* CONFIG_FUNCTION_TRACER */
-#endif /* CONFIG_PERF_EVENTS */
+#endif
 
 #endif /* _LINUX_KERNEL_TRACE_H */
