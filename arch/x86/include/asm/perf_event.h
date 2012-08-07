@@ -158,4 +158,14 @@ extern unsigned long perf_misc_flags(struct pt_regs *regs);
 static inline void perf_events_lapic_init(void)	{ }
 #endif
 
+#if defined(CONFIG_PERF_EVENTS) && defined(CONFIG_CPU_SUP_AMD)
+ extern void amd_pmu_enable_virt(void);
+ extern void amd_pmu_disable_virt(void);
+#else
+ static inline void amd_pmu_enable_virt(void) { }
+ static inline void amd_pmu_disable_virt(void) { }
+#endif
+
+#define arch_perf_out_copy_user copy_from_user_nmi
+
 #endif /* _ASM_X86_PERF_EVENT_H */
