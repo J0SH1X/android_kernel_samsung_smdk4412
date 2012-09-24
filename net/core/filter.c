@@ -178,6 +178,7 @@ unsigned int sk_run_filter(const struct sk_buff *skb,
 		case BPF_S_ALU_OR_K:
 			A |= K;
 			continue;
+		case BPF_S_ANC_ALU_XOR_X:
 		case BPF_S_ALU_XOR_X:
 			A ^= X;
 			continue;
@@ -330,9 +331,6 @@ load_b:
 			continue;
 		case BPF_S_ANC_CPU:
 			A = raw_smp_processor_id();
-			continue;
-		case BPF_S_ANC_ALU_XOR_X:
-			A ^= X;
 			continue;
 		case BPF_S_ANC_NLATTR: {
 			struct nlattr *nla;
