@@ -999,6 +999,11 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
 			return len;
 
 		goto lenout;
+
+	case SO_LOCK_FILTER:
+		v.val = sock_flag(sk, SOCK_FILTER_LOCKED);
+		break;
+
 	default:
 		return -ENOPROTOOPT;
 	}
