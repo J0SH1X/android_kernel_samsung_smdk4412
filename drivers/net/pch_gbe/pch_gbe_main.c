@@ -97,6 +97,169 @@ static int pch_gbe_mdio_read(struct net_device *netdev, int addr, int reg);
 static void pch_gbe_mdio_write(struct net_device *netdev, int addr, int reg,
 			       int data);
 
+#ifdef CONFIG_PCH_PTP
+static int pch_ptp_match(struct sk_buff *skb, u16 uid_hi, u32 uid_lo, u16 seqid)
+{
+	u8 *data = skb->data;
+	unsigned int offset;
+	u16 *hi, *id;
+	u32 lo;
+
+	if ((ptp_classify_raw(skb, ptp_filter) != PTP_CLASS_V2_IPV4) &&
+		(ptp_classify_raw(skb, ptp_filter) != PTP_CLASS_V1_IPV4)) {
+		return 0;
+	}
+
+	offset = ETH_HLEN + IPV4_HLEN(data) + UDP_HLEN;
+
+	if (skb->len < offset + OFF_PTP_SEQUENCE_ID + sizeof(seqid))
+		return 0;
+
+	hi = (u16 *)(data + offset + OFF_PTP_SOURCE_UUID);
+	id = (u16 *)(data + offset + OFF_PTP_SEQUENCE_ID);
+
+	memcpy(&lo, &hi[1], sizeof(lo));
+
+	return (uid_hi == *hi &&
+		uid_lo == lo &&
+		seqid  == *id);
+}
+
+static void pch_rx_timestamp(
+			struct pch_gbe_adapter *adapter, struct sk_buff *skb)
+{
+	struct skb_shared_hwtstamps *shhwtstamps;
+	struct pci_dev *pdev;
+	u64 ns;
+	u32 hi, lo, val;
+	u16 uid, seq;
+
+	if (!adapter->hwts_rx_en)
+		return;
+
+	/* Get ieee1588's dev information */
+	pdev = adapter->ptp_pdev;
+
+	val = pch_ch_event_read(pdev);
+
+	if (!(val & RX_SNAPSHOT_LOCKED))
+		return;
+
+	lo = pch_src_uuid_lo_read(pdev);
+	hi = pch_src_uuid_hi_read(pdev);
+
+	uid = hi & 0xffff;
+	seq = (hi >> 16) & 0xffff;
+
+	if (!pch_ptp_match(skb, htons(uid), htonl(lo), htons(seq)))
+		goto out;
+
+	ns = pch_rx_snap_read(pdev);
+	ns <<= TICKS_NS_SHIFT;
+
+	shhwtstamps = skb_hwtstamps(skb);
+	memset(shhwtstamps, 0, sizeof(*shhwtstamps));
+	shhwtstamps->hwtstamp = ns_to_ktime(ns);
+out:
+	pch_ch_event_write(pdev, RX_SNAPSHOT_LOCKED);
+}
+
+static void pch_tx_timestamp(
+			struct pch_gbe_adapter *adapter, struct sk_buff *skb)
+{
+	struct skb_shared_hwtstamps shhwtstamps;
+	struct pci_dev *pdev;
+	struct skb_shared_info *shtx;
+	u64 ns;
+	u32 cnt, val;
+
+	shtx = skb_shinfo(skb);
+	if (unlikely(shtx->tx_flags & SKBTX_HW_TSTAMP && adapter->hwts_tx_en))
+		shtx->tx_flags |= SKBTX_IN_PROGRESS;
+	else
+		return;
+
+	/* Get ieee1588's dev information */
+	pdev = adapter->ptp_pdev;
+
+	/*
+	 * This really stinks, but we have to poll for the Tx time stamp.
+	 * Usually, the time stamp is ready after 4 to 6 microseconds.
+	 */
+	for (cnt = 0; cnt < 100; cnt++) {
+		val = pch_ch_event_read(pdev);
+		if (val & TX_SNAPSHOT_LOCKED)
+			break;
+		udelay(1);
+	}
+	if (!(val & TX_SNAPSHOT_LOCKED)) {
+		shtx->tx_flags &= ~SKBTX_IN_PROGRESS;
+		return;
+	}
+
+	ns = pch_tx_snap_read(pdev);
+	ns <<= TICKS_NS_SHIFT;
+
+	memset(&shhwtstamps, 0, sizeof(shhwtstamps));
+	shhwtstamps.hwtstamp = ns_to_ktime(ns);
+	skb_tstamp_tx(skb, &shhwtstamps);
+
+	pch_ch_event_write(pdev, TX_SNAPSHOT_LOCKED);
+}
+
+static int hwtstamp_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
+{
+	struct hwtstamp_config cfg;
+	struct pch_gbe_adapter *adapter = netdev_priv(netdev);
+	struct pci_dev *pdev;
+
+	if (copy_from_user(&cfg, ifr->ifr_data, sizeof(cfg)))
+		return -EFAULT;
+
+	if (cfg.flags) /* reserved for future extensions */
+		return -EINVAL;
+
+	/* Get ieee1588's dev information */
+	pdev = adapter->ptp_pdev;
+
+	switch (cfg.tx_type) {
+	case HWTSTAMP_TX_OFF:
+		adapter->hwts_tx_en = 0;
+		break;
+	case HWTSTAMP_TX_ON:
+		adapter->hwts_tx_en = 1;
+		break;
+	default:
+		return -ERANGE;
+	}
+
+	switch (cfg.rx_filter) {
+	case HWTSTAMP_FILTER_NONE:
+		adapter->hwts_rx_en = 0;
+		break;
+	case HWTSTAMP_FILTER_PTP_V1_L4_SYNC:
+		adapter->hwts_rx_en = 0;
+		pch_ch_control_write(pdev, (SLAVE_MODE | CAP_MODE0));
+		break;
+	case HWTSTAMP_FILTER_PTP_V1_L4_DELAY_REQ:
+		adapter->hwts_rx_en = 1;
+		pch_ch_control_write(pdev, (MASTER_MODE | CAP_MODE0));
+		break;
+	case HWTSTAMP_FILTER_PTP_V2_EVENT:
+		adapter->hwts_rx_en = 1;
+		pch_ch_control_write(pdev, (V2_MODE | CAP_MODE2));
+		break;
+	default:
+		return -ERANGE;
+	}
+
+	/* Clear out any old time stamps. */
+	pch_ch_event_write(pdev, TX_SNAPSHOT_LOCKED | RX_SNAPSHOT_LOCKED);
+
+	return copy_to_user(ifr->ifr_data, &cfg, sizeof(cfg)) ? -EFAULT : 0;
+}
+#endif
+
 inline void pch_gbe_mac_load_mac_addr(struct pch_gbe_hw *hw)
 {
 	iowrite32(0x01, &hw->reg->MAC_ADDR_LOAD);
@@ -2373,6 +2536,11 @@ static int pch_gbe_probe(struct pci_dev *pdev,
 		dev_err(&pdev->dev, "Can't ioremap\n");
 		goto err_free_netdev;
 	}
+
+#ifdef CONFIG_PCH_PTP
+	adapter->ptp_pdev = pci_get_bus_and_slot(adapter->pdev->bus->number,
+					       PCI_DEVFN(12, 4));
+#endif
 
 	netdev->netdev_ops = &pch_gbe_netdev_ops;
 	netdev->watchdog_timeo = PCH_GBE_WATCHDOG_PERIOD;
