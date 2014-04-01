@@ -22,14 +22,6 @@
 #include <linux/ptp_classify.h>
 #include <linux/skbuff.h>
 
-static struct sk_filter *ptp_insns __read_mostly;
-
-unsigned int ptp_classify_raw(const struct sk_buff *skb)
-{
-	return SK_RUN_FILTER(ptp_insns, skb);
-}
-EXPORT_SYMBOL_GPL(ptp_classify_raw);
-
 static unsigned int classify(const struct sk_buff *skb)
 {
 	if (likely(skb->dev && skb->dev->phydev &&
@@ -137,13 +129,4 @@ bool skb_defer_rx_timestamp(struct sk_buff *skb)
 
 	return false;
 }
-
-void __init skb_timestamping_init(void)
-{
-	static struct sock_filter ptp_filter[] = { PTP_FILTER };
-	struct sock_fprog ptp_prog = {
-		.len = ARRAY_SIZE(ptp_filter), .filter = ptp_filter,
-	};
-
-	BUG_ON(sk_unattached_filter_create(&ptp_insns, &ptp_prog));
-}
+EXPORT_SYMBOL_GPL(skb_defer_rx_timestamp);
