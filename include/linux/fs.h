@@ -34,6 +34,8 @@
 #define SEEK_END	2	/* seek relative to end of file */
 #define SEEK_MAX	SEEK_END
 
+#define RENAME_NOREPLACE	(1 << 0)	/* Don't overwrite target */
+
 struct fstrim_range {
 	__u64 start;
 	__u64 len;
