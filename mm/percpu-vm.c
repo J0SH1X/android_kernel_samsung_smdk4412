@@ -22,16 +22,15 @@ static struct page *pcpu_chunk_page(struct pcpu_chunk *chunk,
 /**
  * pcpu_get_pages - get temp pages array
  * @chunk: chunk of interest
- * @may_alloc: may allocate the array
  *
  * Returns pointer to array of pointers to struct page which can be indexed
- * with pcpu_page_idx().  Note that there is only one array and access
- * exclusion is the caller's responsibility.
+ * with pcpu_page_idx().  Note that there is only one array and accesses
+ * should be serialized by pcpu_alloc_mutex.
  *
  * RETURNS:
  * Pointer to temp pages array on success.
  */
-static struct page **pcpu_get_pages(struct pcpu_chunk *chunk, bool may_alloc)
+static struct page **pcpu_get_pages(struct pcpu_chunk *chunk_alloc)
 {
 	static struct page **pages;
 	size_t pages_size = pcpu_nr_units * pcpu_unit_pages * sizeof(pages[0]);
@@ -291,7 +290,7 @@ static int pcpu_populate_chunk(struct pcpu_chunk *chunk, int off, int size)
 	/* need to allocate and map pages, this chunk can't be immutable */
 	WARN_ON(chunk->immutable);
 
-	pages = pcpu_get_pages(chunk, true);
+	pages = pcpu_get_pages(chunk);
 	if (!pages)
 		return -ENOMEM;
 
@@ -363,7 +362,7 @@ static void pcpu_depopulate_chunk(struct pcpu_chunk *chunk, int off, int size)
 	 * successful population attempt so the temp pages array must
 	 * be available now.
 	 */
-	pages = pcpu_get_pages(chunk, false);
+	pages = pcpu_get_pages(chunk);
 	BUG_ON(!pages);
 
 	/* unmap and free */
