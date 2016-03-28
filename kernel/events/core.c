@@ -5001,10 +5001,7 @@ static int __perf_event_overflow(struct perf_event *event,
 		irq_work_queue(&event->pending);
 	}
 
-	if (event->overflow_handler)
-		event->overflow_handler(event, data, regs);
-	else
-		perf_event_output(event, data, regs);
+	event->overflow_handler(event, data, regs);
 
 	if (event->fasync && event->pending_kill) {
 		event->pending_wakeup = 1;
