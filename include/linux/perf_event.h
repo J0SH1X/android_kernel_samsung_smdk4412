@@ -839,6 +839,11 @@ struct perf_event {
 	u64				id;
 
 	perf_overflow_handler_t		overflow_handler;
+	void				*overflow_handler_context;
+#ifdef CONFIG_BPF_SYSCALL
+	perf_overflow_handler_t		orig_overflow_handler;
+	struct bpf_prog			*prog;
+#endif
 
 #ifdef CONFIG_EVENT_TRACING
 	struct ftrace_event_call	*tp_event;
