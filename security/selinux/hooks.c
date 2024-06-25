@@ -695,7 +695,12 @@ static int selinux_set_mnt_opts(struct super_block *sb,
 	}
 
 	if (strcmp(sb->s_type->name, "proc") == 0)
-		sbsec->flags |= SE_SBPROC;
+		sbsec->flags |= SE_SBPROC ;
+
+	if (!strcmp(sb->s_type->name, "debugfs") ||
+            !strcmp(sb->s_type->name, "bpf") ||
+	    !strcmp(sb->s_type->name, "sysfs") ||
+	    !strcmp(sb->s_type->name, "pstore"))
 
 	/* Determine the labeling behavior to use for this filesystem type. */
 	rc = security_fs_use((sbsec->flags & SE_SBPROC) ? "proc" : sb->s_type->name, &sbsec->behavior, &sbsec->sid);
