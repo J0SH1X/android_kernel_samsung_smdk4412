@@ -48,6 +48,7 @@
 /* Socket filtering */
 #define SO_ATTACH_FILTER        0x401a
 #define SO_DETACH_FILTER        0x401b
+#define SO_GET_FILTER		SO_ATTACH_FILTER
 
 #define SO_ACCEPTCONN		0x401c
 
@@ -60,6 +61,16 @@
 #define SCM_TIMESTAMPING	SO_TIMESTAMPING
 
 #define SO_RXQ_OVFL             0x4021
+
+#define SO_WIFI_STATUS		0x4022
+#define SCM_WIFI_STATUS		SO_WIFI_STATUS
+#define SO_PEEK_OFF		0x4023
+
+/* Instruct lower device to use last 4-bytes of skb data as FCS */
+#define SO_NOFCS		0x4024
+
+#define SO_LOCK_FILTER          0x4025
+#define SO_MAX_PACING_RATE	0x4028
 
 /* O_NONBLOCK clashes with the bits used for socket types.  Therefore we
  * have to define SOCK_NONBLOCK to a different value here.

@@ -40,6 +40,7 @@
 /* Socket filtering */
 #define SO_ATTACH_FILTER        26
 #define SO_DETACH_FILTER        27
+#define SO_GET_FILTER		SO_ATTACH_FILTER
 
 #define SO_PEERNAME		28
 #define SO_TIMESTAMP		29
@@ -61,5 +62,15 @@
 #define SO_DOMAIN		39
 
 #define SO_RXQ_OVFL             40
+
+#define SO_WIFI_STATUS		41
+#define SCM_WIFI_STATUS		SO_WIFI_STATUS
+#define SO_PEEK_OFF		42
+
+/* Instruct lower device to use last 4-bytes of skb data as FCS */
+#define SO_NOFCS		43
+
+#define SO_LOCK_FILTER          44
+#define SO_MAX_PACING_RATE	45
 
 #endif /* _ASM_M32R_SOCKET_H */

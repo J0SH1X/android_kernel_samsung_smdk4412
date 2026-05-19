@@ -71,6 +71,45 @@
 #define PPC_INST_ERATSX			0x7c000126
 #define PPC_INST_ERATSX_DOT		0x7c000127
 
+/* Misc instructions for BPF compiler */
+#define PPC_INST_LD			0xe8000000
+#define PPC_INST_LHZ			0xa0000000
+#define PPC_INST_LWZ			0x80000000
+#define PPC_INST_STD			0xf8000000
+#define PPC_INST_STDU			0xf8000001
+#define PPC_INST_MFLR			0x7c0802a6
+#define PPC_INST_MTLR			0x7c0803a6
+#define PPC_INST_CMPWI			0x2c000000
+#define PPC_INST_CMPDI			0x2c200000
+#define PPC_INST_CMPLW			0x7c000040
+#define PPC_INST_CMPLWI			0x28000000
+#define PPC_INST_ADDI			0x38000000
+#define PPC_INST_ADDIS			0x3c000000
+#define PPC_INST_ADD			0x7c000214
+#define PPC_INST_SUB			0x7c000050
+#define PPC_INST_BLR			0x4e800020
+#define PPC_INST_BLRL			0x4e800021
+#define PPC_INST_MULLW			0x7c0001d6
+#define PPC_INST_MULHWU			0x7c000016
+#define PPC_INST_MULLI			0x1c000000
+#define PPC_INST_DIVWU			0x7c0003d6
+#define PPC_INST_RLWINM			0x54000000
+#define PPC_INST_RLDICR			0x78000004
+#define PPC_INST_SLW			0x7c000030
+#define PPC_INST_SRW			0x7c000430
+#define PPC_INST_AND			0x7c000038
+#define PPC_INST_ANDDOT			0x7c000039
+#define PPC_INST_OR			0x7c000378
+#define PPC_INST_XOR			0x7c000278
+#define PPC_INST_ANDI			0x70000000
+#define PPC_INST_ORI			0x60000000
+#define PPC_INST_ORIS			0x64000000
+#define PPC_INST_XORI			0x68000000
+#define PPC_INST_XORIS			0x6c000000
+#define PPC_INST_NEG			0x7c0000d0
+#define PPC_INST_BRANCH			0x48000000
+#define PPC_INST_BRANCH_COND		0x40800000
+
 /* macros to insert fields into opcodes */
 #define __PPC_RA(a)	(((a) & 0x1f) << 16)
 #define __PPC_RB(b)	(((b) & 0x1f) << 11)
@@ -83,6 +122,10 @@
 #define __PPC_T_TLB(t)	(((t) & 0x3) << 21)
 #define __PPC_WC(w)	(((w) & 0x3) << 21)
 #define __PPC_WS(w)	(((w) & 0x1f) << 11)
+#define __PPC_SH(s)	__PPC_WS(s)
+#define __PPC_MB(s)	(((s) & 0x1f) << 6)
+#define __PPC_ME(s)	(((s) & 0x1f) << 1)
+#define __PPC_BI(s)	(((s) & 0x1f) << 16)
 
 /*
  * Only use the larx hint bit on 64bit CPUs. e500v1/v2 based CPUs will treat a
@@ -100,13 +143,13 @@
 #define	PPC_DCBZL(a, b)		stringify_in_c(.long PPC_INST_DCBZL | \
 					__PPC_RA(a) | __PPC_RB(b))
 #define PPC_LDARX(t, a, b, eh)	stringify_in_c(.long PPC_INST_LDARX | \
-					__PPC_RT(t) | __PPC_RA(a) | \
-					__PPC_RB(b) | __PPC_EH(eh))
+					___PPC_RT(t) | ___PPC_RA(a) | \
+					___PPC_RB(b) | __PPC_EH(eh))
 #define PPC_LWARX(t, a, b, eh)	stringify_in_c(.long PPC_INST_LWARX | \
-					__PPC_RT(t) | __PPC_RA(a) | \
-					__PPC_RB(b) | __PPC_EH(eh))
+					___PPC_RT(t) | ___PPC_RA(a) | \
+					___PPC_RB(b) | __PPC_EH(eh))
 #define PPC_MSGSND(b)		stringify_in_c(.long PPC_INST_MSGSND | \
-					__PPC_RB(b))
+					___PPC_RB(b))
 #define PPC_POPCNTB(a, s)	stringify_in_c(.long PPC_INST_POPCNTB | \
 					__PPC_RA(a) | __PPC_RS(s))
 #define PPC_POPCNTD(a, s)	stringify_in_c(.long PPC_INST_POPCNTD | \
@@ -124,7 +167,7 @@
 #define PPC_WAIT(w)		stringify_in_c(.long PPC_INST_WAIT | \
 					__PPC_WC(w))
 #define PPC_TLBIE(lp,a) 	stringify_in_c(.long PPC_INST_TLBIE | \
-					       __PPC_RB(a) | __PPC_RS(lp))
+					       ___PPC_RB(a) | ___PPC_RS(lp))
 #define PPC_TLBSRX_DOT(a,b)	stringify_in_c(.long PPC_INST_TLBSRX_DOT | \
 					__PPC_RA(a) | __PPC_RB(b))
 #define PPC_TLBIVAX(a,b)	stringify_in_c(.long PPC_INST_TLBIVAX | \
