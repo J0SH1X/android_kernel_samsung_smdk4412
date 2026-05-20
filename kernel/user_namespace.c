@@ -24,6 +24,8 @@ static struct kmem_cache *user_ns_cachep __read_mostly;
 static bool new_idmap_permitted(struct user_namespace *ns, int cap_setid,
 				struct uid_gid_map *map);
 
+extern void proc_free_inum(unsigned int inum);
+extern int proc_alloc_inum(unsigned int *inum);
 /*
  * Create a new user namespace, deriving the creator from the user in the
  * passed credentials, and replacing that user with the new root user for the
@@ -49,7 +51,7 @@ int create_user_ns(struct cred *new)
 	ns = kmem_cache_zalloc(user_ns_cachep, GFP_KERNEL);
 	if (!ns)
 		return -ENOMEM;
-
+	int ret;
 	ret = proc_alloc_inum(&ns->proc_inum);
 	if (ret) {
 		kmem_cache_free(user_ns_cachep, ns);
