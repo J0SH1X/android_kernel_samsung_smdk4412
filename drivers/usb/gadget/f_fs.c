@@ -310,6 +310,7 @@ struct ffs_epfile {
 	/* Protects ep->ep and ep->req. */
 	struct mutex			mutex;
 	wait_queue_head_t		wait;
+	atomic_t			error;
 
 	struct ffs_data			*ffs;
 	struct ffs_ep			*ep;	/* P: ffs->eps_lock */
@@ -850,7 +851,7 @@ static ssize_t ffs_epfile_io(struct file *file, struct ffs_io_data *io_data)
 	int halt;
 	int buffer_len = !io_data->read ? io_data->len : round_up(io_data->len, 1024);
 
- 	pr_debug("%s: len %zu, buffer_len %d, read %d\n", __func__, len, buffer_len, read);
+ 	pr_debug("%s: len %zu, buffer_len %d, read %d\n", __func__, io_data->len, buffer_len, io_data->read);
  	if (atomic_read(&epfile->error))
 		return -ENODEV;
 
