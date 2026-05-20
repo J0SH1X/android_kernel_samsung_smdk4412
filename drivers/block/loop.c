@@ -79,8 +79,8 @@
 #include <asm/uaccess.h>
 #define LOOP_SET_BLOCK_SIZE	0x4C09
 static LIST_HEAD(loop_devices);
-static DEFINE_IDR(loop_index_idr);
 static DEFINE_MUTEX(loop_index_mutex);
+static DEFINE_MUTEX(loop_devices_mutex);
 
 static int max_part;
 static int part_shift;
@@ -160,17 +160,19 @@ static struct loop_func_table *xfer_funcs[MAX_LO_CRYPT] = {
 	&xor_funcs
 };
 
-static loff_t get_loop_size(struct loop_device *lo, struct file *file)
+static loff_t get_size(loff_t offset, loff_t sizelimit, struct file *file)
 {
-	loff_t size, offset, loopsize;
+	loff_t size, loopsize;
 
 	/* Compute loopsize in bytes */
 	size = i_size_read(file->f_mapping->host);
-	offset = lo->lo_offset;
 	loopsize = size - offset;
-	if (lo->lo_sizelimit > 0 && lo->lo_sizelimit < loopsize)
-		loopsize = lo->lo_sizelimit;
+	/* offset is beyond i_size, wierd but possible */
+	if (loopsize < 0)
+		return 0;
 
+	if (sizelimit > 0 && sizelimit < loopsize)
+		loopsize = sizelimit;
 	/*
 	 * Unfortunately, if we want to do I/O on the device,
 	 * the number of 512-byte sectors has to fit into a sector_t.
@@ -178,17 +180,25 @@ static loff_t get_loop_size(struct loop_device *lo, struct file *file)
 	return loopsize >> 9;
 }
 
-static int
-figure_loop_size(struct loop_device *lo)
+static loff_t get_loop_size(struct loop_device *lo, struct file *file)
 {
-	loff_t size = get_loop_size(lo, lo->lo_backing_file);
+	return get_size(lo->lo_offset, lo->lo_sizelimit, file);
+}
+
+static int
+figure_loop_size(struct loop_device *lo, loff_t offset, loff_t sizelimit)
+{
+	loff_t size = get_size(offset, sizelimit, lo->lo_backing_file);
 	sector_t x = (sector_t)size;
 
 	if (unlikely((loff_t)x != size))
 		return -EFBIG;
-
+	if (lo->lo_offset != offset)
+		lo->lo_offset = offset;
+	if (lo->lo_sizelimit != sizelimit)
+		lo->lo_sizelimit = sizelimit;
 	set_capacity(lo->lo_disk, x);
-	return 0;					
+	return 0;
 }
 
 static inline int
@@ -814,6 +824,35 @@ static void loop_sysfs_exit(struct loop_device *lo)
 			   &loop_attribute_group);
 }
 
+static void loop_config_discard(struct loop_device *lo)
+{
+	struct file *file = lo->lo_backing_file;
+	struct inode *inode = file->f_mapping->host;
+	struct request_queue *q = lo->lo_queue;
+
+	/*
+	 * We use punch hole to reclaim the free space used by the
+	 * image a.k.a. discard. However we do support discard if
+	 * encryption is enabled, because it may give an attacker
+	 * useful information.
+	 */
+	if ((!file->f_op->fallocate) ||
+	    lo->lo_encrypt_key_size) {
+		q->limits.discard_granularity = 0;
+		q->limits.discard_alignment = 0;
+		q->limits.max_discard_sectors = 0;
+		q->limits.discard_zeroes_data = 0;
+		queue_flag_clear_unlocked(QUEUE_FLAG_DISCARD, q);
+		return;
+	}
+
+	q->limits.discard_granularity = inode->i_sb->s_blocksize;
+	q->limits.discard_alignment = 0;
+	q->limits.max_discard_sectors = UINT_MAX >> 9;
+	q->limits.discard_zeroes_data = 1;
+	queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, q);
+}
+
 static int loop_set_fd(struct loop_device *lo, fmode_t mode,
 		       struct block_device *bdev, unsigned int arg)
 {
@@ -1288,7 +1327,7 @@ static int loop_set_capacity(struct loop_device *lo, struct block_device *bdev)
 	err = -ENXIO;
 	if (unlikely(lo->lo_state != Lo_bound))
 		goto out;
-	err = figure_loop_size(lo);
+	err = figure_loop_size(lo, lo->lo_offset, lo->lo_sizelimit);
 	if (unlikely(err))
 		goto out;
 	sec = get_capacity(lo->lo_disk);
