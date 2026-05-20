@@ -1816,19 +1816,11 @@ static int __init loop_init(void)
 	if (max_loop > 1UL << (MINORBITS - part_shift))
 		return -EINVAL;
 
-	/*
-	 * If max_loop is specified, create that many devices upfront.
-	 * This also becomes a hard limit. If max_loop is not specified,
-	 * create CONFIG_BLK_DEV_LOOP_MIN_COUNT loop devices at module
-	 * init time. Loop devices can be requested on-demand with the
-	 * /dev/loop-control interface, or be instantiated by accessing
-	 * a 'dead' device node.
-	 */
 	if (max_loop) {
 		nr = max_loop;
 		range = max_loop << part_shift;
 	} else {
-		nr = CONFIG_BLK_DEV_LOOP_MIN_COUNT;
+		nr = 8;
 		range = 1UL << MINORBITS;
 	}
 
@@ -1849,12 +1841,6 @@ static int __init loop_init(void)
 
 	blk_register_region(MKDEV(LOOP_MAJOR, 0), range,
 				  THIS_MODULE, loop_probe, NULL, NULL);
-
-	/* pre-create number of devices given by config or max_loop */
-	mutex_lock(&loop_index_mutex);
-	for (i = 0; i < nr; i++)
-		loop_add(&lo, i);
-	mutex_unlock(&loop_index_mutex);
 
 	printk(KERN_INFO "loop: module loaded\n");
 	return 0;
