@@ -3452,10 +3452,11 @@ SYSCALL_DEFINE5(renameat2, int, olddfd, const char __user *, oldname,
         if (flags & ~RENAME_NOREPLACE)
                 return -EINVAL;
 
-	from = user_path_parent(olddfd, oldname, &oldnd);
+	from = user_path_parent(olddfd, oldname, &oldnd, &to);
 	if (IS_ERR(from)) {
 		error = PTR_ERR(from);
 		goto exit;
+	}
 
 	error = user_path_parent(newdfd, newname, &newnd, &to);
 	if (error)
