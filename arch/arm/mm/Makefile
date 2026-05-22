@@ -17,6 +17,7 @@ endif
 
 obj-$(CONFIG_MMU)		+= fault-armv.o flush.o idmap.o ioremap.o \
 				   mmap.o pgd.o vmregion.o
+obj-y	+= rodata.o
 
 ifeq ($(CONFIG_MMU),y)
 ifeq ($(CONFIG_SLP),y)

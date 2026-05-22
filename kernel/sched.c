@@ -1875,6 +1875,11 @@ static void deactivate_task(struct rq *rq, struct task_struct *p, int flags)
 	dec_nr_running(rq);
 }
 
+static DEFINE_PER_CPU(u64, cpu_hardirq_time);
+static DEFINE_PER_CPU(u64, cpu_softirq_time);
+
+static DEFINE_PER_CPU(u64, irq_start_time);
+
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
 
 /*
@@ -2009,31 +2014,16 @@ static void update_rq_clock_task(struct rq *rq, s64 delta)
 
 	rq->prev_irq_time += irq_delta;
 	delta -= irq_delta;
-#endif
-#ifdef CONFIG_PARAVIRT_TIME_ACCOUNTING
-	if (static_key_false((&paravirt_steal_rq_enabled))) {
-		u64 st;
+#else /* CONFIG_IRQ_TIME_ACCOUNTING */
 
-		steal = paravirt_steal_clock(cpu_of(rq));
-		steal -= rq->prev_steal_time_rq;
+#define sched_clock_irqtime	(0)
 
-		if (unlikely(steal > delta))
-			steal = delta;
-
-		st = steal_ticks(steal);
-		steal = st * TICK_NSEC;
-
-		rq->prev_steal_time_rq += steal;
-
-		delta -= steal;
-	}
-#endif
-
+static void update_rq_clock_task(struct rq *rq, s64 delta)
+{
 	rq->clock_task += delta;
-
-	if (irq_delta && sched_feat(NONIRQ_POWER))
-		sched_rt_avg_update(rq, irq_delta);
 }
+
+#endif /* CONFIG_IRQ_TIME_ACCOUNTING */
 
 static int irqtime_account_hi_update(void)
 {
@@ -2064,17 +2054,6 @@ static int irqtime_account_si_update(void)
 	local_irq_restore(flags);
 	return ret;
 }
-
-#else /* CONFIG_IRQ_TIME_ACCOUNTING */
-
-#define sched_clock_irqtime	(0)
-
-static void update_rq_clock_task(struct rq *rq, s64 delta)
-{
-	rq->clock_task += delta;
-}
-
-#endif /* CONFIG_IRQ_TIME_ACCOUNTING */
 
 #include "sched_idletask.c"
 #include "sched_fair.c"

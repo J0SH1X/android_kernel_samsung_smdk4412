@@ -384,5 +384,11 @@ mem_cgroup_print_bad_page(struct page *page)
 }
 #endif
 
+enum {
+	UNDER_LIMIT,
+	SOFT_LIMIT,
+	OVER_LIMIT,
+};
+
 #endif /* _LINUX_MEMCONTROL_H */
 

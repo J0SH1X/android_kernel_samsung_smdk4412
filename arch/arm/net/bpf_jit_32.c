@@ -22,6 +22,7 @@
 #include <asm/cacheflush.h>
 #include <asm/hwcap.h>
 #include <asm/opcodes.h>
+#include <asm/rodata.h>
 
 #include "bpf_jit_32.h"
 
@@ -1784,7 +1785,7 @@ void bpf_jit_compile(struct bpf_prog *prog)
 {
 	/* Nothing to do here. We support Internal BPF. */
 }
-
+extern int set_memory_ro(unsigned long virt, int numpages);
 struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 {
 	struct bpf_prog *tmp, *orig_prog = prog;
@@ -1924,14 +1925,6 @@ out_imms:
 	if (ctx.imm_count)
 		kfree(ctx.imms);
 #endif
-
-	if (bpf_jit_enable > 1)
-		/* there are 2 passes here */
-		bpf_jit_dump(fp->len, alloc_size, 2, ctx.target);
-
-	set_memory_ro((unsigned long)header, header->pages);
-	fp->bpf_func = (void *)ctx.target;
-	fp->jited = 1;
 out_off:
 	kfree(ctx.offsets);
 out:
@@ -1940,6 +1933,7 @@ out:
 					   tmp : orig_prog);
 	return prog;
 }
+extern int set_memory_rw(unsigned long virt, int numpages);
 
 void bpf_jit_free(struct bpf_prog *prog)
 {
