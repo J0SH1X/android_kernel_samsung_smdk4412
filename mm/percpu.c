@@ -302,6 +302,31 @@ static void *pcpu_mem_alloc(size_t size)
 }
 
 /**
+ * pcpu_mem_zalloc - allocate memory
+ * @size: bytes to allocate
+ *
+ * Allocate @size bytes.  If @size is smaller than PAGE_SIZE,
+ * kzalloc() is used; otherwise, vzalloc() is used.  The returned
+ * memory is always zeroed.
+ *
+ * CONTEXT:
+ * Does GFP_KERNEL allocation.
+ *
+ * RETURNS:
+ * Pointer to the allocated area on success, NULL on failure.
+ */
+static void *pcpu_mem_zalloc(size_t size)
+{
+	if (WARN_ON_ONCE(!slab_is_available()))
+		return NULL;
+
+	if (size <= PAGE_SIZE)
+		return kzalloc(size, GFP_KERNEL);
+	else
+		return vzalloc(size);
+}
+
+/**
  * pcpu_mem_free - free memory
  * @ptr: memory to free
  * @size: size of the area
@@ -878,6 +903,7 @@ static void __percpu *pcpu_alloc(size_t size, size_t align, bool reserved,
 	int occ_pages = 0;
 	int slot, off, new_alloc, cpu, ret;
 	unsigned long flags;
+	void __percpu *ptr;
 
 	/*
 	 * We want the lowest bit of offset available for in-use/free
