@@ -1452,13 +1452,6 @@ static int tcp_shifted_skb(struct sock *sk, struct sk_buff *skb,
 		skb_shinfo(skb)->gso_type = 0;
 	}
 
-	/* We discard results */
-	tcp_sacktag_one(sk, state,
-			TCP_SKB_CB(skb)->sacked,
-			TCP_SKB_CB(skb)->seq,
-			TCP_SKB_CB(skb)->end_seq,
-			dup_sack, pcount);
-
 	/* Difference in this won't matter, both ACKed by the same cumul. ACK */
 	TCP_SKB_CB(prev)->sacked |= (TCP_SKB_CB(skb)->sacked & TCPCB_EVER_RETRANS);
 
