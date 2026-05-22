@@ -3453,7 +3453,7 @@ SYSCALL_DEFINE5(renameat2, int, olddfd, const char __user *, oldname,
                 return -EINVAL;
 
 	from = user_path_parent(olddfd, oldname, &oldnd, &to);
-	if (IS_ERR(from)) {
+	if (IS_ERR(from) || from == NULL) {
 		error = PTR_ERR(from);
 		goto exit;
 	}
